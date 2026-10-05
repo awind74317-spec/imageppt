@@ -517,9 +517,110 @@ def preflight(root, run, limit=10 * 1024 * 1024):
             "zip_created": False, "zip_estimate_note": "以原PNG bytes 加保守 ZIP 標頭估算；實際封裝後仍須量測。"}
 
 
+def pack_parts(root, run, destination, limit=10 * 1024 * 1024):
+    """Package a complete production run in whole-page parts; never rewrites run."""
+    root = Path(root).resolve()
+    if run.get("mode", "production") != "production":
+        raise ValueError("pack-parts requires production mode")
+    result = check(root, run)
+    if not result["mechanical_pass"] or not result["complete"]:
+        raise ValueError("Part packaging refused: incomplete or invalid full run; " +
+                         "; ".join(result["errors"] + result["missing"]))
+    inventory = preflight(root, run, limit=limit)
+    if inventory["missing"] or inventory["unsupported"]:
+        raise ValueError("Part packaging refused: missing or unsupported deliverables")
+    destination = Path(destination).resolve()
+    if destination.exists():
+        raise ValueError("Part output directory already exists")
+    all_artifact_names = {item["file"] for item in run["artifacts"]}
+    selected_names = set(result["selected_files"])
+    ordered_pages = [page for group in inventory["zip_groups"] for page in group["pages"]]
+    if not ordered_pages:
+        raise ValueError("No pages to package")
+
+    def view_for(pages, part, count):
+        view = copy.deepcopy(run)
+        page_set = set(pages)
+        view["selected_pages"] = list(pages)
+        for key in ("expected_outputs", "artifacts", "page_groups"):
+            view[key] = [item for item in run.get(key, []) if item["page"] in page_set]
+        page_files = {item["file"] for item in view["artifacts"] if item["file"] in selected_names}
+        view["deliverables"] = [name for name in run.get("deliverables", [])
+                                if name not in all_artifact_names or name in page_files]
+        view["delivery_package"] = {"part": part, "parts": count,
+                                    "full_planned_pages": len(run["planned_pages"]),
+                                    "full_selected_pages": run["selected_pages"],
+                                    "full_planned_images": len(run["expected_outputs"]),
+                                    "covered_pages": list(pages)}
+        return view
+
+    def estimate(pages):
+        # The largest possible part numbers bound the final JSON metadata length.
+        view = view_for(pages, len(ordered_pages), len(ordered_pages))
+        names = set(view["deliverables"])
+        for item in view["artifacts"]:
+            if item["file"] in selected_names:
+                names.update((item["file"], item["prompt"]))
+        names.add("run.json")
+        estimate_bytes = 1024
+        for name in names:
+            size = (len(json.dumps(view, ensure_ascii=False, indent=2).encode("utf-8"))
+                    if name == "run.json" else contained(root, name).stat().st_size)
+            estimate_bytes += (size + (size + 4095) // 4096 + (size + 16383) // 16384 +
+                               (size + 33554431) // 33554432 + 13 +
+                               2 * len(name.encode("utf-8")) + 128)
+        return estimate_bytes
+
+    groups, current = [], []
+    for page in ordered_pages:
+        candidate = current + [page]
+        if estimate(candidate) > limit:
+            if current:
+                groups.append(current)
+            current = [page]
+            if estimate(current) > limit:
+                raise ValueError("Single page plus required documents exceeds part limit: " + page)
+        else:
+            current = candidate
+    if current:
+        groups.append(current)
+
+    # Stage all parts before publishing the new output directory.
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    packages = []
+    with tempfile.TemporaryDirectory(prefix="image-slides-parts-", dir=destination.parent) as staging:
+        staged_directory = Path(staging) / "parts"
+        staged_directory.mkdir()
+        for index, pages in enumerate(groups, 1):
+            view = view_for(pages, index, len(groups))
+            name = "part-{:02d}.zip".format(index)
+            output = staged_directory / name
+            packed = pack(root, view, output)
+            actual_bytes = output.stat().st_size
+            if actual_bytes > limit:
+                raise ValueError("Actual ZIP exceeds part limit: " + name)
+            packages.append({"file": name, "pages": pages,
+                             "image_count": len(packed["selected_files"]),
+                             "byte_size": actual_bytes, "sha256": digest(output)})
+        # mkdir refuses a concurrent pre-existing destination; failures leave no published parts.
+        destination.mkdir()
+        try:
+            for package in packages:
+                os.replace(staged_directory / package["file"], destination / package["file"])
+        except OSError:
+            for package in packages:
+                created = destination / package["file"]
+                if created.is_file():
+                    created.unlink()
+            destination.rmdir()
+            raise
+    return {"mechanical_pass": True, "complete": True, "output_directory": str(destination),
+            "group_limit_bytes": limit, "packages": packages, "original_run_modified": False}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=["check", "pack", "plan", "status", "register", "space", "preflight"])
+    parser.add_argument("command", choices=["check", "pack", "plan", "status", "register", "space", "preflight", "pack-parts"])
     parser.add_argument("run", type=Path)
     parser.add_argument("--output", type=Path)
     parser.add_argument("--mode", choices=["production", "acceptance"])
@@ -527,12 +628,16 @@ def main():
     parser.add_argument("--record", type=Path, help="JSON file for register")
     args = parser.parse_args()
     run = json.loads(args.run.read_text(encoding="utf-8-sig"))
-    if args.command == "pack" and not args.output:
-        parser.error("pack requires --output")
+    if args.command in ("pack", "pack-parts") and not args.output:
+        parser.error(args.command + " requires --output")
+    if args.command == "pack-parts" and (args.allow_partial or args.mode == "acceptance"):
+        parser.error("pack-parts requires a complete production run")
     if args.command == "register" and not args.record:
         parser.error("register requires --record")
     if args.command == "pack":
         result = pack(args.run.parent, run, args.output, mode=args.mode, allow_partial=args.allow_partial)
+    elif args.command == "pack-parts":
+        result = pack_parts(args.run.parent, run, args.output)
     elif args.command == "check":
         result = check(args.run.parent, run, mode=args.mode)
     elif args.command == "plan":

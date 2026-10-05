@@ -2,7 +2,7 @@
 
 可重複使用的 Codex 技能 `native-image-slides`。提供文稿與視覺母版後，由 Web GPT 原生生圖與圖片編修製作獨立 PNG，再整理 Space 素材入口和交付 ZIP。
 
-本套件為 2026-10-05 已安裝版本的可攜副本；只有兩份參考文件的私人來源連結被移除，工具程式與製作規則保留。
+本套件為 2026-10-05 的可攜版本，包含已知原圖預覽恢復、交接分頁保留與按完整頁組分包工具；不含私人來源連結。
 
 ## 下載與安裝
 
@@ -33,13 +33,14 @@ python native-image-slides/scripts/artifacts.py plan run.json
 python native-image-slides/scripts/artifacts.py status run.json
 python native-image-slides/scripts/artifacts.py check run.json
 python native-image-slides/scripts/artifacts.py pack run.json --output slides.zip
+python native-image-slides/scripts/artifacts.py pack-parts run.json --output slide-parts
 ```
 
 任務檔結構與其他操作見 [run-format.md](native-image-slides/references/run-format.md)。工具負責切批、檔案核對、命名、封裝和頁面草稿，不會自行上傳、生圖或代替目視品檢。
 
 ## 已驗證與限制
 
-已實跑兩頁六張同批漸進圖、逐張收件與品檢，以及缺圖單張補件。Space 交付曾需要主代理救場，修正後 Luna 完成頁面更新和重開核對；不承諾每次完全無人介入。
+已實跑兩頁六張同批漸進圖、逐張收件與品檢，以及缺圖單張補件；另完成七頁十三張圖片全案，含三頁各三階段漸進圖，無補生或修圖。後者最後兩張收件遇下載逾時與對話歷史載入失敗，由主代理沿既有原圖取回並集中交付；尚未證明更新後 Luna 能獨立完成全程，不承諾每次完全無人介入。
 
 手機 App 曾無法顯示 Space 內嵌圖片，即使電腦版與雲端原圖可讀；手機問題仍未解。電腦顯示成功不算手機驗收。精確 Token／額度及模型內部圖片來源 ID 不可觀察時，必須記錄為未知。
 

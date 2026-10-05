@@ -44,6 +44,7 @@ python artifacts.py plan <run.json>
 python artifacts.py status <run.json>
 python artifacts.py check <run.json>
 python artifacts.py pack <run.json> --output <全新檔名.zip>
+python artifacts.py pack-parts <run.json> --output <小包輸出目錄>
 python artifacts.py register <run.json> --record <單張紀錄.json>
 python artifacts.py preflight <run.json>
 python artifacts.py space <run.json>
@@ -76,7 +77,7 @@ python artifacts.py space <run.json>
 
 耗時計錄只用實際牆鐘時間：`sent_at` 為確認送出時、`generation_finished_at` 為首次觀察回覆完成時、批次 `collected_at` 為最後一張原圖收件時。取得觀察時間即可，不追查模型內部結束時間。不可把數次等待秒數相加當整段耗時；漏記就寫未知，已收件圖片可用各張記錄的最晚時間作批次收件時間，勿另增同義時間欄位。
 
-失敗原因、下一步與已上傳引用可直接留在對應batch/artifact，不建立第二份台帳。`status`只提供缺檔及下一步建議，不會操作瀏覽器，也不能證明遠端未送出。它返回的可送狀態只是本機條件，仍要核對當前分頁。
+失敗原因、下一步與已上傳引用可直接留在對應batch/artifact，不建立第二份台帳。下載前在 batch 的 `pending_download` 保存正式輸出檔名、已觀察的原圖名稱與 Space 預覽網址；登錄原圖後將 `original_filename`、`preview_url` 留在 artifact 並清除 pending_download。交接時將必要瀏覽器／分頁 ID 留在同一 batch，並依瀏覽器指引保留分頁。`status`只提供缺檔及下一步建議，不會操作瀏覽器，也不能證明遠端未送出。它返回的可送狀態只是本機條件，仍要核對當前分頁。
 
 ## 收件與品質
 
@@ -107,7 +108,7 @@ python artifacts.py space <run.json>
 ## 降低手動紀錄與交付返工
 
 - `register` 接收一筆明確目視品檢後的artifact紀錄，計算PNG與來源hash並檢查，拒絕重複或不合法紀錄；失败不改run。不會替你判定圖片品質。引用可在該筆的 `page_reference` 保存工具實際回傳值。
-- `preflight` 在封裝前列出缺檔／不支援格式，並依每頁原圖位元組保守估算10MiB小包分組；實際ZIP仍要確認容量，單頁超限須個別處理，不能反覆上傳試錯。
+- `preflight` 在封裝前列出缺檔／不支援格式，並依每頁原圖位元組保守估算10MiB小包分組。容量超限時直接用 `pack-parts` 封裝完整頁組；該命令計入必要文件開銷、核對實際容量，回傳每包檔名、頁次、圖數、位元組及雜湊。單頁連同必要文件超限時明確報錯，不能反覆上傳試錯。小包內的 run 說明它涵蓋的頁次與完整全案總數，原 run.json 不修改。
 - `space` 只讀並產清單與預覽草稿，依預定播放順序、採用的品檢合格artifact及真實引用；沒引用寫待上傳，不能捏造連結。素材區仍用實際附件引用填入。
 - 正常流程逐圖只目視一次，遇具体疑問才交主代理複核；最後寫定耗用及問題紀錄再封裝、上傳，避免反覆重包及重傳紀錄。
 
